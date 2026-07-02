@@ -1,0 +1,72 @@
+name: Veracode Upload And Scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: "GitHub.${{ github.event.repository.name }}"
+  PUBLISH_DIR: "publish"
+  PACKAGE_FILE: "upload.zip"
+
+jobs:
+  build-and-veracode-scan:
+    name: Build and Veracode Upload And Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore app/app.csproj
+
+      - name: Publish application
+        run: |
+          dotnet publish app/app.csproj \
+            -c Release \
+            -f net8.0 \
+            -o "$PUBLISH_DIR" \
+            -p:UseAppHost=false \
+            --no-restore
+
+      - name: Create Veracode package
+        run: |
+          cd "$PUBLISH_DIR"
+          zip -r "../$PACKAGE_FILE" . \
+            -x "*.md" \
+            -x "*.log" \
+            -x "*.tmp" \
+            -x "*/TestResults/*" \
+            -x "*/coverage/*"
+
+      - name: Show package info
+        run: |
+          ls -lh "$PACKAGE_FILE"
+          unzip -l "$PACKAGE_FILE" | head -50
+
+      - name: Veracode Upload And Scan
+        uses: veracode/veracode-uploadandscan-action@0.2.10
+        with:
+          appname: "${{ env.APP_NAME }}"
+          createprofile: true
+          filepath: "${{ env.PACKAGE_FILE }}"
+          version: "GitHub-${{ github.run_number }}-${{ github.sha }}"
+          vid: "${{ secrets.VERACODE_API_ID }}"
+          vkey: "${{ secrets.VERACODE_API_KEY }}"
+          criticality: "VeryHigh"
+          autoscan: true
+          scanallnonfataltoplevelmodules: true
+          includenewmodules: true
+          deleteincompletescan: 1
+          maxretrycount: 3
