@@ -1,0 +1,89 @@
+name: PR QA and Veracode Scan
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+env:
+  PUBLISH_DIR: "publish"
+  PACKAGE_FILE: "upload.zip"
+
+jobs:
+  qa:
+    name: QA Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore app/app.csproj
+
+      - name: Build
+        run: dotnet build app/app.csproj -c Release --no-restore
+
+      - name: Run tests
+        run: dotnet test app/app.csproj -c Release --no-build
+
+  veracode_pipeline_scan:
+    name: Veracode Pipeline Scan
+    runs-on: ubuntu-latest
+    needs: qa
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore app/app.csproj
+
+      - name: Publish application
+        run: |
+          dotnet publish app/app.csproj \
+            -c Release \
+            -f net8.0 \
+            -o "$PUBLISH_DIR" \
+            -p:UseAppHost=false \
+            --no-restore
+
+      - name: Create Veracode package
+        run: |
+          cd "$PUBLISH_DIR"
+          zip -r "../$PACKAGE_FILE" . \
+            -x "*.md" \
+            -x "*.log" \
+            -x "*.tmp" \
+            -x "*/TestResults/*" \
+            -x "*/coverage/*"
+
+      - name: Download Veracode Pipeline Scan
+        run: |
+          curl -sS -O https://downloads.veracode.com/securityscan/pipeline-scan-LATEST.zip
+          unzip -q pipeline-scan-LATEST.zip pipeline-scan.jar
+
+      - name: Run Veracode Pipeline Scan
+        run: |
+          java -jar pipeline-scan.jar \
+            --veracode_api_id "${{ secrets.VERACODE_API_ID }}" \
+            --veracode_api_key "${{ secrets.VERACODE_API_KEY }}" \
+            --file "$PACKAGE_FILE" \
+            --fail_on_severity "Very High, High" \
+            --issue_details true \
+            --gl_issue_generation false
