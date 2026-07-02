@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: veracode-${{ github.repository }}
+  cancel-in-progress: false
+
 env:
   APP_NAME: "GitHub.${{ github.event.repository.name }}"
   PUBLISH_DIR: "publish"
@@ -65,7 +69,6 @@ jobs:
           vid: "${{ secrets.VERACODE_API_ID }}"
           vkey: "${{ secrets.VERACODE_API_KEY }}"
           criticality: "VeryHigh"
-          autoscan: true
           scanallnonfataltoplevelmodules: true
           includenewmodules: true
           deleteincompletescan: 1
